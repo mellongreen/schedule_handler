@@ -33,15 +33,36 @@
 #define TIMEOUT 500
 #define PORT1PIN 7
 #define PORT2PIN 8
-
 #define YEAROFFSET 2000
+
+//timezone offset
+#define OFFSETHOUR -8
+#define OFFSETMIN 0
+
+//dst offset to be added to local time
+#define DSTOFFSETHOUR 1
+#define DSTOFFSETMIN 0
+
+//ordinal of the dayofweek; 2 means the second
+#define DSTBEGINORDINAL 2
+//0 means sunday; value should be 0 (SUN) to 6 (SAT)
+#define DSTBEGINDAYOFWEEK 0
+//in 24-hr sys, all in localtime
+#define DSTBEGINHOUR 2
+#define DSTBEGINMIN 0
+
+#define DSTENDORDINAL 1
+#define DSTENDDAYOFWEEK 0
+#define DSTENDHOUR 1
+#define DSTENDMIN 0
+
 
 char cmdbuffer[BUFFSIZE];
 LiquidCrystal lcd(12, 11, 5, 4, 3, 2);
 int curcol,currow,count;
 StopWatch stopwatch;
 char space[LCDCOLUMNS+1];
-char offsethour;
+char offsethour,offsetmin;
 byte monthdays[] = {31,28,31,30,31,30,31,31,30,31,30,31};
 //std::list<int> schedule;
 LinkedList<schedule_entry> schedule;
@@ -85,7 +106,8 @@ void newline()
 }
 void setup() 
 {
-  offsethour=-7;
+  offsethour=OFFSETHOUR;
+  offsetmin=OFFSETMIN;
   Wire.begin();
   Serial.begin(14400);
 
@@ -192,7 +214,7 @@ int processschedule()
 //   Serial.println(currentTime);
 //   delay(1000);
 //Serial.println(currentTime);
-delay(1000);
+//delay(1000);
    for(int i=0;i<schedule.size();i++)
    {
      iter = schedule.get(i);
@@ -249,7 +271,7 @@ void loop()
   lcd.print(" IP");
   
   //lcd.setCursor(0,currow);
-    delay(20);
+    //delay(20);
  }
 //get cmd in TIMEOUT or less
  if(!getcmd())
@@ -317,19 +339,33 @@ byte *year)
 }
 void adjustTimeZone
 (
+byte *inminute,
 byte *inhour,
 byte *indayOfWeek,
 byte *indayOfMonth,
 byte *inmonth,
-byte *inyear)
+byte *inyear,
+char offmin,
+char offhour)
 {
+  	char minute = *inminute;
 	char hour = *inhour;
 	char dayOfWeek = *indayOfWeek;
 	char dayOfMonth = *indayOfMonth;
 	char month = *inmonth;
 	char year = *inyear;
-	
-  hour =hour+offsethour;
+  minute = minute+offmin;
+  if(minute<0)
+  {
+  minute+=60;
+  hour--;
+  }
+  else if (minute>=60)
+  {
+  minute = minute%60;
+  hour++;
+  }
+  hour =hour+offhour;
   if(hour<0)
   {
   hour=hour+24;
@@ -366,12 +402,66 @@ byte *inyear)
         dayOfMonth = 1;
       }
   }
+  *inminute = minute;
   *inhour=hour;
   *indayOfWeek=dayOfWeek;
   *indayOfMonth=dayOfMonth;
   *inmonth=month;
   *inyear=year;
+}
+int isindst(byte month, byte dayOfWeek,byte dayOfMonth,byte hour,byte minute)
+{
+if(3<=month && month<=11)
+{
+  if(month==3)
+  {
+    byte dstbegindate = getdate(dayOfMonth,dayOfWeek,DSTBEGINORDINAL,DSTBEGINDAYOFWEEK);
+    if(dstbegindate<dayOfMonth)return 1;
+    else if (dstbegindate==dayOfMonth)
+    {
+      if(DSTBEGINHOUR<hour)return 1;
+      else if(DSTBEGINHOUR==hour) return DSTBEGINMIN<=minute?1:0;
+      else return 0;
+    }
+    else return 0;
+  }
+  else if (month==11)
+  {
+     byte dstenddate = getdate(dayOfMonth,dayOfWeek,DSTENDORDINAL,DSTENDDAYOFWEEK);
+    if(dayOfMonth<dstenddate)return 1;
+    else if (dstenddate==dayOfMonth)
+    {
+      /*if(DSTBEGINHOUR<hour)return 1;
+      else if(DSTBEGINHOUR==hour) return DSTBEGINMIN<=minute?1:0;
+      else return 0;*/
+      if(hour<DSTENDHOUR) return 1;
+      else if (hour == DSTENDHOUR) return minute<DSTENDMIN?1:0;
+      else return 0;      
+    }
+    else return 0;
+  }
+  else return 1;
+}
+return 0;
+}
 
+byte getdate(byte curdayOfMonth,byte curdayOfWeek,byte ordinal,byte targetdayOfWeek)
+{
+while(curdayOfMonth!=1)
+{
+curdayOfMonth--;
+if(curdayOfWeek==0)curdayOfWeek=6;
+else curdayOfWeek--;
+}
+byte count =0;
+while(count!=ordinal)
+{
+  if(curdayOfWeek==targetdayOfWeek)count++;
+  curdayOfMonth++;
+  if(curdayOfWeek==6)curdayOfWeek=0;
+  else curdayOfWeek++;
+}
+return curdayOfMonth-1;
 }
 
 void displayTime()
@@ -379,9 +469,13 @@ void displayTime()
   byte second, minute, hour, dayOfWeek, dayOfMonth, month, year;
   // retrieve data from DS3231
   readDS3231time(&second, &minute, &hour, &dayOfWeek, &dayOfMonth, &month, &year);
-  // send it to the serial monitor
+ // send it to the serial monitor
  // Serial.print(hour, DEC);
-  adjustTimeZone(&hour,&dayOfWeek,&dayOfMonth,&month,&year);
+ adjustTimeZone(&minute,&hour,&dayOfWeek,&dayOfMonth,&month,&year,offsetmin,offsethour);
+//  Serial.println(dayOfWeek);
+if(isindst(month,dayOfWeek,dayOfMonth,hour,minute))
+   adjustTimeZone(&minute,&hour,&dayOfWeek,&dayOfMonth,&month,&year,DSTOFFSETMIN,DSTOFFSETHOUR);
+  
   lcd.print(hour,DEC);
   lcd.print(":");
   
