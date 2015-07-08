@@ -120,7 +120,7 @@ void setup()
   curcol = 0;
   currow = 0;
   int i=0;
-  for(;i++;i<LCDCOLUMNS)
+  for(;i<LCDCOLUMNS;i++)
   {
   space[i]=' ';
   }
